@@ -29,7 +29,7 @@
 ### Установка
 ```bash
 # Скачайте скрипт
-wget https://raw.githubusercontent.com/saym101/vsftpd-setup/main/vsftpd_setup.sh
+wget [https://raw.githubusercontent.com/saym101/vsftpd-setup/main/vsftpd_setup.sh](https://raw.githubusercontent.com/saym101/vsftpd_setup/751fcd627f1abc734538fa235d06f6b1f0c3feb4/vsftpd_setup.sh)
 
 # Дайте права на выполнение
 chmod +x vsftpd_setup.sh
