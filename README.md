@@ -35,11 +35,11 @@ wget https://raw.githubusercontent.com/saym101/vsftpd-setup/main/vsftpd_setup.sh
 chmod +x vsftpd_setup.sh
 
 # Запустите
-sudo ./vsftpd_setup.sh
+./vsftpd_setup.sh
 🖥️ Использование
 Интерактивный режим (рекомендуется)
 bash
-sudo ./vsftpd_setup.sh
+./vsftpd_setup.sh
 Следуйте инструкциям в меню для установки и настройки.
 
 Параметры командной строки
@@ -102,16 +102,17 @@ text
 Просмотр логов
 bash
 # Логи systemd
-sudo journalctl -xeu vsftpd
+journalctl -xeu vsftpd
 
 # Файловые логи
-sudo tail -f /var/log/vsftpd.log
+tail -f /var/log/vsftpd.log
 Проверка конфигурации
 bash
-sudo vsftpd -olisten=NO /etc/vsftpd.conf
+vsftpd -olisten=NO /etc/vsftpd.conf
 Перезапуск службы
 bash
-sudo systemctl restart vsftpd
+systemctl restart vsftpd
+
 🤝 Вклад в проект
 Приветствуются pull requests и issue reports!
 
