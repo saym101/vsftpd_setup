@@ -8,7 +8,7 @@
 # Автор: saym101
 # Версия: 2.9
 # Лицензия: MIT
-# Репозиторий: https://github.com/yourusername/vsftpd-setup
+# Репозиторий: https://github.com/saym101/vsftpd_setup
 #
 # Функции:
 # - Автоматическая установка vsftpd
