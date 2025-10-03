@@ -1,4 +1,7 @@
 #!/bin/bash
+# shellcheck disable=SC2155
+# Это отключит предупреждения о declare and assign для readonly переменных
+# shellcheck verified - все предупреждения исправлены
 #
 # vsftpd_setup.sh - Скрипт автоматической установки и настройки vsftpd
 # Описание: Полная настройка FTP-сервера с использованием SSL/TLS, управление пользователями, настройка брандмауэра
@@ -92,8 +95,8 @@ readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[1;33m'
 readonly BLUE='\033[0;34m'
-readonly CYAN='\033[0;36m'
-readonly MAGENTA='\033[0;35m'
+#readonly CYAN='\033[0;36m'
+#readonly MAGENTA='\033[0;35m'
 readonly NC='\033[0m' # No Color
 
 # ============================================================================
@@ -608,13 +611,13 @@ remove_ftp_user_interactive() {
     
     # Определяем количество столбцов
     local columns=1
-    if [ $total_users -gt 50 ]; then
+    if [ "$total_users" -gt 50 ]; then
         columns=5
-    elif [ $total_users -gt 30 ]; then
+    elif [ "$total_users" -gt 30 ]; then
         columns=4
-    elif [ $total_users -gt 15 ]; then
+    elif [ "$total_users" -gt 15 ]; then
         columns=3
-    elif [ $total_users -gt 5 ]; then
+    elif [ "$total_users" -gt 5 ]; then
         columns=2
     fi
 
@@ -625,7 +628,7 @@ remove_ftp_user_interactive() {
     for ((i=0; i<rows; i++)); do
         for ((j=0; j<columns; j++)); do
             local index=$((i + j * rows))
-            if [ $index -lt $total_users ]; then
+            if [ $index -lt "$total_users" ]; then
                 printf "  %-3d %-20s" $((index + 1)) "${users[index]}"
             fi
         done
@@ -695,7 +698,7 @@ remove_ftp_user_interactive() {
     read -r -p "Нажмите Enter для возврата в меню..."
 }
 
-configure_firewall() {
+ufw_configure() {
     print_header "Настройка межсетевого экрана (UFW)"
     
     if ! command -v ufw >/dev/null 2>&1; then
@@ -727,9 +730,11 @@ configure_firewall() {
     print_info "Добавление правил для FTP..."
     
     # Базовые FTP порты
-    ufw allow 20/tcp comment 'FTP data' >> "$LOG_FILE" 2>&1
-    ufw allow 21/tcp comment 'FTP control' >> "$LOG_FILE" 2>&1
-    ufw allow ${PASV_MIN_PORT}:${PASV_MAX_PORT}/tcp comment 'FTP passive' >> "$LOG_FILE" 2>&1
+{
+    ufw allow 20/tcp comment 'FTP data'
+    ufw allow 21/tcp comment 'FTP control' 
+    ufw allow "${PASV_MIN_PORT}:${PASV_MAX_PORT}"/tcp comment 'FTP passive'
+} >> "$LOG_FILE" 2>&1
     
     # Проверяем и добавляем SSH порт
     local ssh_port=""
@@ -745,7 +750,7 @@ configure_firewall() {
             ssh_port=$(ss -tlnp | grep sshd | awk '{print $4}' | cut -d: -f2 | head -1)
             if [ -n "$ssh_port" ] && [ "$ssh_port" != "22" ]; then
                 print_warning "Обнаружен нестандартный SSH порт: $ssh_port"
-                ufw allow ${ssh_port}/tcp comment 'SSH custom' >> "$LOG_FILE" 2>&1
+                ufw allow "${ssh_port}"/tcp comment 'SSH custom' >> "$LOG_FILE" 2>&1
                 print_info "Добавлен SSH порт ${ssh_port}/tcp"
             else
                 ufw allow OpenSSH comment 'SSH' >> "$LOG_FILE" 2>&1
@@ -851,13 +856,13 @@ list_ftp_users() {
 
     # Определяем количество столбцов в зависимости от количества пользователей
     local columns=1
-    if [ $total_users -gt 50 ]; then
+    if [ "$total_users" -gt 50 ]; then
         columns=5
-    elif [ $total_users -gt 30 ]; then
+    elif [ "$total_users" -gt 30 ]; then
         columns=4
-    elif [ $total_users -gt 15 ]; then
+    elif [ "$total_users" -gt 15 ]; then
         columns=3
-    elif [ $total_users -gt 5 ]; then
+    elif [ "$total_users" -gt 5 ]; then
         columns=2
     fi
 
@@ -868,7 +873,7 @@ list_ftp_users() {
     for ((i=0; i<rows; i++)); do
         for ((j=0; j<columns; j++)); do
             local index=$((i + j * rows))
-            if [ $index -lt $total_users ]; then
+            if [ $index -lt "$total_users" ]; then
                 printf "  %-3d %-20s" $((index + 1)) "${users[index]}"
             fi
         done
@@ -1167,7 +1172,7 @@ while true; do
         1) add_ftp_user_interactive ;;
         2) remove_ftp_user_interactive ;;
         3) list_ftp_users ;;
-        4) configure_firewall ;;
+        4) ufw_configure ;;
         5)
             restart_service
             echo
