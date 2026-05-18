@@ -1,6 +1,6 @@
 # vsftpd Setup Script
 
-![Version](https://img.shields.io/badge/version-2.9-blue)
+![Version](https://img.shields.io/badge/version-3.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Debian%2FUbuntu-orange)
 
@@ -65,7 +65,9 @@ chmod +x vsftpd_setup.sh
 ./vsftpd_setup.sh --install
 ```
 ### Создать пользователя
+```
 ./vsftpd_setup.sh --user myuser --password mypass123
+```
 
 ## 🎯 Основное меню
 
@@ -107,7 +109,7 @@ chmod +x vsftpd_setup.sh
  - Настроена правильная PAM-аутентификация
  - Рекомендуется настройка UFW
 
-# 🐛 Решение проблем
+## 🐛 Решение проблем
 
 ## Просмотр логов
 
@@ -128,7 +130,7 @@ vsftpd -olisten=NO /etc/vsftpd.conf
 systemctl restart vsftpd
 ```
 
-# 🤝 Вклад в проект
+## 🤝 Вклад в проект
 
  - Приветствуются pull requests и issue reports!
  - Форкните репозиторий
@@ -140,6 +142,6 @@ systemctl restart vsftpd
 ## 📄 Лицензия
 Проект распространяется под [лицензией MIT](LICENSE). Вы можете свободно использовать, изменять и распространять скрипт с указанием авторства.
 
-# ⚠️ Отказ от ответственности
+## ⚠️ Отказ от ответственности
 
 **Этот скрипт предоставляется "как есть". Автор не несет ответственности за любой ущерб, вызванный использованием этого скрипта. Всегда тестируйте в изолированной среде перед использованием в production.**
