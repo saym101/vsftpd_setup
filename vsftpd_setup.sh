@@ -1,12 +1,11 @@
 #!/bin/bash
 # shellcheck disable=SC2155
 # Это отключит предупреждения о declare and assign для readonly переменных
-# shellcheck verified - все предупреждения исправлены
 #
 # vsftpd_setup.sh - Скрипт автоматической установки и настройки vsftpd
 # Описание: Полная настройка FTP-сервера с использованием SSL/TLS, управление пользователями, настройка брандмауэра
 # Автор: saym101
-# Версия: 2.9
+# Версия: 3.0
 # Лицензия: MIT
 # Репозиторий: https://github.com/saym101/vsftpd_setup
 #
@@ -21,45 +20,6 @@
 set -euo pipefail
 
 # ============================================================================
-# ОБРАБОТКА ПАРАМЕТРОВ КОМАНДНОЙ СТРОКИ
-# ============================================================================
-
-# Обработка аргументов командной строки
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -h|--help)
-            show_usage
-            exit 0
-            ;;
-        -v|--version)
-            show_version
-            exit 0
-            ;;
-        -i|--install)
-            AUTO_INSTALL="yes"
-            shift
-            ;;
-        -u|--user)
-            FTP_USER="$2"
-            shift 2
-            ;;
-        -p|--password)
-            FTP_PASS="$2"
-            shift 2
-            ;;
-        -y|--yes)
-            AUTO_YES="yes"
-            shift
-            ;;
-        *)
-            echo "Unknown option: $1"
-            show_usage
-            exit 1
-            ;;
-    esac
-done
-
-# ============================================================================
 # КОНСТАНТЫ И ПЕРЕМЕННЫЕ
 # ============================================================================
 
@@ -69,7 +29,6 @@ readonly CONFIG_FILE="/etc/vsftpd.conf"
 readonly CONFIG_BACKUP="/etc/vsftpd.conf.$(date +%Y%m%d-%H%M%S).bak"
 readonly USERLIST_FILE="/etc/vsftpd/vsftpd.userlist"
 readonly SHARED_DIR="/srv/ftp-user"
-readonly SSL_DIR="/etc/vsftpd/ssl"
 readonly LOG_FILE="$SCRIPT_DIR/vsftpd_setup.log"
 readonly INFO_FILE="$SCRIPT_DIR/vsftpd_setup_info.txt"
 readonly INSTALL_MARKER="/etc/vsftpd/.vsftpd_setup_installed"
@@ -83,6 +42,10 @@ PASV_MAX_PORT="${PASV_MAX_PORT:-50000}"
 # Переменные для настроек
 PASV_ADDRESS=""
 ENABLE_SSL="yes"  # По умолчанию включаем SSL
+SSL_MODE="snakeoil"  # snakeoil | letsencrypt-domain | letsencrypt-ip
+SSL_CERT_FILE="/etc/ssl/certs/ssl-cert-snakeoil.pem"
+SSL_KEY_FILE="/etc/ssl/private/ssl-cert-snakeoil.key"
+SSL_DOMAIN=""
 FTP_USER=""
 FTP_PASS=""
 
@@ -155,12 +118,8 @@ EOF
 }
 
 show_version() {
-    echo "vsftpd_setup.sh version 2.9"
+    echo "vsftpd_setup.sh version 3.0"
     echo "Automated vsftpd installation and configuration script"
-}
-
-create_dir() {
-    mkdir -p "$SSL_DIR"
 }
 
 need_cmd() {
@@ -257,9 +216,6 @@ auth	required	pam_listfile.so item=user sense=deny file=/etc/ftpusers onerr=succ
 @include common-session
 @include common-auth
 # auth required pam_shells.so - ЗАКОММЕНТИРОВАНО для работы с nologin shell
-auth    required    pam_unix.so
-account required    pam_unix.so
-session required    pam_unix.so
 EOF
 
     print_success "PAM конфигурация обновлена (исправлена работа с nologin shell)"
@@ -297,24 +253,183 @@ ask_pasv_address() {
 
 ssl_configure() {
     print_header "Настройка SSL/TLS (FTPS)"
-    
-    read -r -p "Включить SSL/TLS для защищенного соединения? (yes/no, default: yes): " ENABLE_SSL
+
+    if [ "$AUTO_INSTALL" != "yes" ]; then
+        read -r -p "Включить SSL/TLS для защищенного соединения? (yes/no, default: yes): " ENABLE_SSL
+    fi
     ENABLE_SSL=${ENABLE_SSL:-yes}
-    
+
     if [ "$ENABLE_SSL" != "yes" ]; then
         print_info "SSL/TLS не будет использоваться"
         return
     fi
-    
-    print_info "Использование системного SSL сертификата..."
-    
-    # Проверяем наличие системного сертификата
+
+    if [ "$AUTO_INSTALL" = "yes" ]; then
+        # Неинтерактивный режим — используем snakeoil по умолчанию
+        ssl_setup_snakeoil
+        return
+    fi
+
+    echo
+    echo "Выберите тип SSL-сертификата:"
+    echo "  1) Самоподписанный (snakeoil) — работает сразу, клиент предупредит о недоверенном сертификате"
+    echo "  2) Let's Encrypt по домену — бесплатный доверенный сертификат (нужен домен и порт 80)"
+    echo "  3) Let's Encrypt по IP — бесплатный доверенный сертификат (нужен публичный IP и порт 80)"
+    echo
+
+    while true; do
+        read -r -p "Ваш выбор [1]: " ssl_choice
+        ssl_choice=${ssl_choice:-1}
+        case "$ssl_choice" in
+            1) ssl_setup_snakeoil; break ;;
+            2) ssl_setup_letsencrypt_domain; break ;;
+            3) ssl_setup_letsencrypt_ip; break ;;
+            *) echo "Неверный выбор. Введите 1, 2 или 3." ;;
+        esac
+    done
+}
+
+ssl_setup_snakeoil() {
+    SSL_MODE="snakeoil"
+    print_info "Использование самоподписанного сертификата (snakeoil)..."
+
     if [ ! -f "/etc/ssl/certs/ssl-cert-snakeoil.pem" ]; then
         print_warning "Системный SSL сертификат не найден, генерируем новый..."
         make-ssl-cert generate-default-snakeoil --force-override
     fi
-    
-    print_success "SSL/TLS будет использовать системный сертификат"
+
+    SSL_CERT_FILE="/etc/ssl/certs/ssl-cert-snakeoil.pem"
+    SSL_KEY_FILE="/etc/ssl/private/ssl-cert-snakeoil.key"
+    print_success "SSL/TLS: самоподписанный сертификат"
+}
+
+install_certbot() {
+    if command -v certbot >/dev/null 2>&1; then
+        print_info "certbot уже установлен: $(certbot --version 2>&1)"
+        return 0
+    fi
+
+    print_info "Установка certbot..."
+    apt update -y >> "$LOG_FILE" 2>&1
+    apt install -y --no-install-recommends certbot >> "$LOG_FILE" 2>&1
+
+    if ! command -v certbot >/dev/null 2>&1; then
+        print_error "Не удалось установить certbot"
+        return 1
+    fi
+    print_success "certbot установлен: $(certbot --version 2>&1)"
+}
+
+setup_certbot_renewal() {
+    # Хук для перезапуска vsftpd при обновлении сертификата
+    local hook_dir="/etc/letsencrypt/renewal-hooks/deploy"
+    mkdir -p "$hook_dir"
+
+    cat > "$hook_dir/restart-vsftpd.sh" << 'HOOKEOF'
+#!/bin/bash
+# Перезапуск vsftpd после обновления сертификата Let's Encrypt
+systemctl restart vsftpd
+HOOKEOF
+
+    chmod +x "$hook_dir/restart-vsftpd.sh"
+    print_success "Автообновление: хук перезапуска vsftpd создан"
+
+    # Проверяем что таймер certbot активен
+    if systemctl is-enabled certbot.timer >/dev/null 2>&1; then
+        print_success "Автообновление: таймер certbot активен"
+    else
+        systemctl enable --now certbot.timer 2>/dev/null || true
+        print_info "Автообновление: таймер certbot включён"
+    fi
+}
+
+ssl_setup_letsencrypt_domain() {
+    SSL_MODE="letsencrypt-domain"
+
+    install_certbot || { ssl_setup_snakeoil; return; }
+
+    echo
+    read -r -p "Введите доменное имя (например: ftp.example.com): " SSL_DOMAIN
+
+    if [ -z "$SSL_DOMAIN" ]; then
+        print_error "Домен не указан. Переключение на самоподписанный сертификат."
+        ssl_setup_snakeoil
+        return
+    fi
+
+    print_info "Запрос сертификата для $SSL_DOMAIN ..."
+    print_warning "Убедитесь, что порт 80 свободен и домен указывает на этот сервер"
+    echo
+
+    if certbot certonly --standalone --non-interactive --agree-tos \
+        --register-unsafely-without-email \
+        -d "$SSL_DOMAIN" >> "$LOG_FILE" 2>&1; then
+
+        SSL_CERT_FILE="/etc/letsencrypt/live/$SSL_DOMAIN/fullchain.pem"
+        SSL_KEY_FILE="/etc/letsencrypt/live/$SSL_DOMAIN/privkey.pem"
+        setup_certbot_renewal
+        print_success "SSL/TLS: Let's Encrypt сертификат для $SSL_DOMAIN"
+    else
+        print_error "Не удалось получить сертификат. Проверьте логи: $LOG_FILE"
+        print_warning "Переключение на самоподписанный сертификат."
+        ssl_setup_snakeoil
+    fi
+}
+
+ssl_setup_letsencrypt_ip() {
+    SSL_MODE="letsencrypt-ip"
+
+    install_certbot || { ssl_setup_snakeoil; return; }
+
+    # Проверяем версию certbot (нужен >= 5.3 для --ip-address)
+    local certbot_ver
+    certbot_ver=$(certbot --version 2>&1 | grep -oP '\d+\.\d+' | head -1)
+    local certbot_major certbot_minor
+    certbot_major=$(echo "$certbot_ver" | cut -d. -f1)
+    certbot_minor=$(echo "$certbot_ver" | cut -d. -f2)
+
+    if [ "$certbot_major" -lt 5 ] || { [ "$certbot_major" -eq 5 ] && [ "$certbot_minor" -lt 3 ]; }; then
+        print_error "Для сертификатов по IP нужен certbot >= 5.3 (установлен: $certbot_ver)"
+        print_warning "Обновите certbot: apt update && apt install --only-upgrade certbot"
+        print_warning "Переключение на самоподписанный сертификат."
+        ssl_setup_snakeoil
+        return
+    fi
+
+    local detected_ip
+    detected_ip=$(detect_external_ip)
+
+    echo
+    if [ -n "$detected_ip" ]; then
+        print_info "Обнаружен IP-адрес: $detected_ip"
+    fi
+    read -r -p "Введите публичный IP-адрес для сертификата [${detected_ip}]: " SSL_DOMAIN
+    SSL_DOMAIN=${SSL_DOMAIN:-$detected_ip}
+
+    if [ -z "$SSL_DOMAIN" ]; then
+        print_error "IP-адрес не указан. Переключение на самоподписанный сертификат."
+        ssl_setup_snakeoil
+        return
+    fi
+
+    print_info "Запрос 6-дневного сертификата для IP $SSL_DOMAIN ..."
+    print_warning "Убедитесь, что порт 80 свободен и доступен извне"
+    echo
+
+    if certbot certonly --standalone --non-interactive --agree-tos \
+        --register-unsafely-without-email \
+        --preferred-profile shortlived \
+        --ip-address "$SSL_DOMAIN" >> "$LOG_FILE" 2>&1; then
+
+        SSL_CERT_FILE="/etc/letsencrypt/live/$SSL_DOMAIN/fullchain.pem"
+        SSL_KEY_FILE="/etc/letsencrypt/live/$SSL_DOMAIN/privkey.pem"
+        setup_certbot_renewal
+        print_success "SSL/TLS: Let's Encrypt сертификат для IP $SSL_DOMAIN (6-дневный, автообновление)"
+    else
+        print_error "Не удалось получить сертификат. Проверьте логи: $LOG_FILE"
+        print_warning "Переключение на самоподписанный сертификат."
+        ssl_setup_snakeoil
+    fi
 }
 
 create_config() {
@@ -322,13 +437,10 @@ create_config() {
     
     local ssl_block=""
     if [ "$ENABLE_SSL" = "yes" ]; then
-        ssl_block=$(cat <<'EOF'
-# SSL настройки
-rsa_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem
-rsa_private_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
-ssl_enable=YES
-EOF
-)
+        ssl_block="# SSL настройки
+rsa_cert_file=$SSL_CERT_FILE
+rsa_private_key_file=$SSL_KEY_FILE
+ssl_enable=YES"
     else
         ssl_block="ssl_enable=NO"
     fi
@@ -381,7 +493,8 @@ pasv_enable=YES
 pasv_min_port=$PASV_MIN_PORT
 pasv_max_port=$PASV_MAX_PORT
 $pasv_address_line
-pasv_promiscuous=YES
+# pasv_promiscuous=YES отключен (снижает безопасность: отключает проверку IP)
+pasv_promiscuous=NO
 
 # --- Директория конфигов пользователей ---
 user_config_dir=$VSFTPD_USERS
@@ -497,54 +610,62 @@ generate_password() {
 create_ftp_user() {
     print_header "Создание FTP-пользователя"
 
-    while true; do
-        read -r -p "Имя пользователя: " FTP_USER
-        
-        # Проверка на пустое имя
-        if [ -z "$FTP_USER" ]; then
-            print_error "Имя пользователя не может быть пустым"
-            continue
-        fi
-        
-        # Проверка на латинские символы и цифры
-        if [[ ! "$FTP_USER" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-            print_error "Имя пользователя может содержать только:"
-            echo "  - Латинские буквы (a-z, A-Z)"
-            echo "  - Цифры (0-9)"
-            echo "  - Символы: _ -"
-            echo "  НЕ используйте кириллицу, пробелы или специальные символы!"
-            continue
-        fi
-        
-        # Проверка длины имени
-        if [ ${#FTP_USER} -lt 2 ]; then
-            print_error "Имя пользователя должно быть не менее 2 символов"
-            continue
-        fi
-        
-        if [ ${#FTP_USER} -gt 32 ]; then
-            print_error "Имя пользователя должно быть не более 32 символов"
-            continue
-        fi
-        
-        # Проверка существования пользователя
-        if id "$FTP_USER" >/dev/null 2>&1; then
-            print_warning "Пользователь $FTP_USER уже существует"
-            read -r -p "Использовать существующего пользователя? (yes/no): " USE_EXISTING
-            if [ "$USE_EXISTING" = "yes" ]; then
-                break
-            else
+    # Если имя пользователя не задано через CLI — запрашиваем интерактивно
+    if [ -z "$FTP_USER" ]; then
+        while true; do
+            read -r -p "Имя пользователя: " FTP_USER
+
+            if [ -z "$FTP_USER" ]; then
+                print_error "Имя пользователя не может быть пустым"
                 continue
             fi
-        else
-            break
-        fi
-    done
 
-    # Генерация пароля автоматически
-    FTP_PASS=$(generate_password)
-    print_info "Генерация случайного пароля..."
-    print_success "Пароль сгенерирован: $FTP_PASS"
+            if [[ ! "$FTP_USER" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+                print_error "Имя пользователя может содержать только:"
+                echo "  - Латинские буквы (a-z, A-Z)"
+                echo "  - Цифры (0-9)"
+                echo "  - Символы: _ -"
+                echo "  НЕ используйте кириллицу, пробелы или специальные символы!"
+                continue
+            fi
+
+            if [ ${#FTP_USER} -lt 2 ]; then
+                print_error "Имя пользователя должно быть не менее 2 символов"
+                continue
+            fi
+
+            if [ ${#FTP_USER} -gt 32 ]; then
+                print_error "Имя пользователя должно быть не более 32 символов"
+                continue
+            fi
+
+            if id "$FTP_USER" >/dev/null 2>&1; then
+                print_warning "Пользователь $FTP_USER уже существует"
+                read -r -p "Использовать существующего пользователя? (yes/no): " USE_EXISTING
+                if [ "$USE_EXISTING" = "yes" ]; then
+                    break
+                else
+                    continue
+                fi
+            else
+                break
+            fi
+        done
+    else
+        # Валидация имени, переданного через CLI
+        if [[ ! "$FTP_USER" =~ ^[a-zA-Z0-9_-]+$ ]] || [ ${#FTP_USER} -lt 2 ] || [ ${#FTP_USER} -gt 32 ]; then
+            print_error "Некорректное имя пользователя: $FTP_USER"
+            exit 1
+        fi
+    fi
+
+    # Генерация пароля, если не задан через CLI
+    if [ -z "$FTP_PASS" ]; then
+        FTP_PASS=$(generate_password)
+    fi
+    log "Пароль для пользователя $FTP_USER сгенерирован"
+    echo
+    echo -e "  Сгенерированный пароль: ${GREEN}${FTP_PASS}${NC}"
     echo
     print_warning "ЗАПИШИТЕ этот пароль! Он больше не будет показан!"
     echo
@@ -581,11 +702,6 @@ allow_writeable_chroot=YES
 EOF
 
     print_success "Конфигурация пользователя создана: $user_config_file"
-    
-    # Сохраняем пароль в временный файл для отображения в summary
-    local temp_pass_file="/tmp/ftp_pass_${FTP_USER}.tmp"
-    echo "$FTP_PASS" > "$temp_pass_file"
-    chmod 600 "$temp_pass_file"
 }
 
 remove_ftp_user_interactive() {
@@ -959,8 +1075,16 @@ save_user_info() {
 │ ВАЖНАЯ ИНФОРМАЦИЯ                                                        │
 └─────────────────────────────────────────────────────────────────────────┘
 
-$([ "$ENABLE_SSL" = "yes" ] && echo "  ⚠ ВНИМАНИЕ: Используется самоподписанный сертификат. В FTP-клиенте нужно
-     принять сертификат при первом подключении." || echo "  ⚠ ВНИМАНИЕ: SSL/TLS отключен. Данные передаются в открытом виде!")
+$(if [ "$ENABLE_SSL" = "yes" ]; then
+    if [ "$SSL_MODE" = "snakeoil" ]; then
+        echo "  ⚠ ВНИМАНИЕ: Используется самоподписанный сертификат. В FTP-клиенте нужно"
+        echo "     принять сертификат при первом подключении."
+    else
+        echo "  ✓ Используется доверенный сертификат Lets Encrypt ($SSL_MODE)"
+    fi
+  else
+    echo "  ⚠ ВНИМАНИЕ: SSL/TLS отключен. Данные передаются в открытом виде!"
+  fi)
 
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║  СОХРАНИТЕ ЭТИ ДАННЫЕ В БЕЗОПАСНОМ МЕСТЕ!                                  ║
@@ -1164,6 +1288,7 @@ while true; do
     echo "  7) Показать логи службы (journalctl)"
     echo "  8) Показать файл логов vsftpd"
     echo "  9) Удалить сервер vsftpd"
+    echo " 10) Переконфигурировать SSL-сертификат"
     echo "  0) Выход"
     echo
 
@@ -1197,12 +1322,60 @@ while true; do
             read -r -p "Нажмите Enter для возврата в меню..."
             ;;
         9) uninstall_vsftpd ;;
+        10)
+            ssl_configure
+            # Обновляем конфиг с новыми путями сертификатов
+            backup_config
+            create_config
+            restart_service
+            echo
+            print_success "SSL-конфигурация обновлена"
+            read -r -p "Нажмите Enter для возврата в меню..."
+            ;;
         0) echo "Выход..."; exit 0 ;;
         *) echo "Неверный выбор. Повторите."; sleep 1 ;;
     esac
 done
     fi
 }
+
+# ============================================================================
+# ОБРАБОТКА ПАРАМЕТРОВ КОМАНДНОЙ СТРОКИ
+# ============================================================================
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_usage
+            exit 0
+            ;;
+        -v|--version)
+            show_version
+            exit 0
+            ;;
+        -i|--install)
+            AUTO_INSTALL="yes"
+            shift
+            ;;
+        -u|--user)
+            FTP_USER="$2"
+            shift 2
+            ;;
+        -p|--password)
+            FTP_PASS="$2"
+            shift 2
+            ;;
+        -y|--yes)
+            AUTO_YES="yes"
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_usage
+            exit 1
+            ;;
+    esac
+done
 
 # ЗАПУСК СКРИПТА
 main_menu
